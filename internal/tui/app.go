@@ -35,9 +35,10 @@ type App struct {
 	models  map[step]tea.Model
 	width   int
 	height  int
+	dryRun  bool
 }
 
-func NewApp() *App {
+func NewApp(dryRun bool) *App {
 	cfg := &config.InstallConfig{
 		Hostname:   "localhost",
 		Filesystem: "ext4",
@@ -46,6 +47,7 @@ func NewApp() *App {
 		cfg:     cfg,
 		current: stepWelcome,
 		models:  make(map[step]tea.Model),
+		dryRun:  dryRun,
 	}
 	a.initModels()
 	return a
@@ -60,9 +62,9 @@ func (a *App) initModels() {
 	a.models[stepEncryption] = newEncryptionModel(a.cfg)
 	a.models[stepUser] = newUserModel(a.cfg)
 	a.models[stepSSHKeys] = newSSHKeysModel(a.cfg)
-	a.models[stepConfirm] = newConfirmModel(a.cfg)
-	a.models[stepProgress] = newProgressModel(a.cfg)
-	a.models[stepDone] = newDoneModel(a.cfg)
+	a.models[stepConfirm] = newConfirmModel(a.cfg, a.dryRun)
+	a.models[stepProgress] = newProgressModel(a.cfg, a.dryRun)
+	a.models[stepDone] = newDoneModel(a.cfg, a.dryRun)
 }
 
 func (a *App) Init() tea.Cmd {
@@ -102,11 +104,11 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case stepSSHKeys:
 			a.models[stepSSHKeys] = newSSHKeysModel(a.cfg)
 		case stepConfirm:
-			a.models[stepConfirm] = newConfirmModel(a.cfg)
+			a.models[stepConfirm] = newConfirmModel(a.cfg, a.dryRun)
 		case stepProgress:
-			a.models[stepProgress] = newProgressModel(a.cfg)
+			a.models[stepProgress] = newProgressModel(a.cfg, a.dryRun)
 		case stepDone:
-			a.models[stepDone] = newDoneModel(a.cfg)
+			a.models[stepDone] = newDoneModel(a.cfg, a.dryRun)
 		}
 		if m, ok := a.models[a.current]; ok {
 			return a, m.Init()

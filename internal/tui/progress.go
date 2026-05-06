@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os/exec"
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/bubbles/progress"
 	"github.com/charmbracelet/bubbles/viewport"
@@ -42,9 +43,10 @@ type progressModel struct {
 	width    int
 	height   int
 	sub      chan string
+	dryRun   bool
 }
 
-func newProgressModel(cfg *config.InstallConfig) *progressModel {
+func newProgressModel(cfg *config.InstallConfig, dryRun bool) *progressModel {
 	p := progress.New(
 		progress.WithDefaultGradient(),
 		progress.WithWidth(60),
@@ -56,6 +58,7 @@ func newProgressModel(cfg *config.InstallConfig) *progressModel {
 		viewport: vp,
 		stepName: "Starting installation...",
 		sub:      make(chan string, 200),
+		dryRun:   dryRun,
 	}
 }
 
@@ -78,7 +81,61 @@ func (m *progressModel) listenForLines() tea.Cmd {
 	}
 }
 
+var dryRunSteps = []struct {
+	name    string
+	substep string
+	pct     int
+}{
+	{"Partitioning disk", "Creating GPT partition table", 5},
+	{"Partitioning disk", "Creating EFI partition (512 MiB)", 10},
+	{"Partitioning disk", "Creating root partition", 15},
+	{"Formatting partitions", "Formatting EFI as FAT32", 20},
+	{"Formatting partitions", "Formatting root as " + "{{fs}}", 25},
+	{"Pulling container image", "Authenticating with registry", 30},
+	{"Pulling container image", "Fetching manifest", 38},
+	{"Pulling container image", "Downloading layers", 50},
+	{"Installing system", "Running bootc install to-filesystem", 60},
+	{"Installing system", "Generating initramfs", 72},
+	{"Installing system", "Installing bootloader", 82},
+	{"Configuring system", "Setting hostname", 87},
+	{"Configuring system", "Creating user account", 91},
+	{"Configuring system", "Writing authorized_keys", 95},
+	{"Finalizing", "Syncing filesystems", 98},
+}
+
+func (m *progressModel) startDryRun() tea.Cmd {
+	return func() tea.Msg {
+		total := len(dryRunSteps)
+		for i, s := range dryRunSteps {
+			name := strings.ReplaceAll(s.substep, "{{fs}}", m.cfg.Filesystem)
+			stepEvent, _ := json.Marshal(map[string]any{
+				"type":           "step",
+				"step":           i + 1,
+				"total_steps":    total,
+				"step_name":      s.name,
+				"cumulative_pct": s.pct,
+			})
+			m.sub <- string(stepEvent)
+			subEvent, _ := json.Marshal(map[string]any{
+				"type":    "substep",
+				"message": name,
+			})
+			m.sub <- string(subEvent)
+			time.Sleep(350 * time.Millisecond)
+		}
+		completeEvent, _ := json.Marshal(map[string]any{
+			"type": "complete",
+		})
+		m.sub <- string(completeEvent)
+		close(m.sub)
+		return progressDoneMsg{}
+	}
+}
+
 func (m *progressModel) startInstall() tea.Cmd {
+	if m.dryRun {
+		return m.startDryRun()
+	}
 	return func() tea.Msg {
 		if err := m.cfg.WriteRecipe(recipePath); err != nil {
 			m.sub <- fmt.Sprintf("ERROR: writing recipe: %v", err)
@@ -202,7 +259,11 @@ func (m *progressModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (m *progressModel) View() string {
 	var sb strings.Builder
 	sb.WriteString("\n")
-	sb.WriteString(titleStyle.Render("  Installing..."))
+	title := "  Installing..."
+	if m.dryRun {
+		title = "  Dry Run — Simulating Installation..."
+	}
+	sb.WriteString(titleStyle.Render(title))
 	sb.WriteString("\n\n")
 
 	sb.WriteString("  ")

@@ -14,18 +14,26 @@ type confirmModel struct {
 	cfg     *config.InstallConfig
 	form    *huh.Form
 	proceed bool
+	dryRun  bool
 }
 
-func newConfirmModel(cfg *config.InstallConfig) *confirmModel {
-	m := &confirmModel{cfg: cfg}
+func newConfirmModel(cfg *config.InstallConfig, dryRun bool) *confirmModel {
+	m := &confirmModel{cfg: cfg, dryRun: dryRun}
 	m.proceed = false
+
+	desc := "Review the summary above. This will ERASE the target disk."
+	affirmative := "Install now"
+	if dryRun {
+		desc = "Dry-run mode: no changes will be made. The recipe JSON will be shown at the end."
+		affirmative = "Run dry-run"
+	}
 
 	m.form = huh.NewForm(
 		huh.NewGroup(
 			huh.NewConfirm().
 				Title("Start installation?").
-				Description("Review the summary above. This will ERASE the target disk.").
-				Affirmative("Install now").
+				Description(desc).
+				Affirmative(affirmative).
 				Negative("Go back").
 				Value(&m.proceed),
 		),
@@ -93,7 +101,11 @@ func (m *confirmModel) View() string {
 	))
 
 	sb.WriteString("\n\n")
-	sb.WriteString(warningStyle.Render("  ⚠  ALL DATA ON " + m.cfg.DiskDevice + " WILL BE DESTROYED"))
+	if m.dryRun {
+		sb.WriteString(accentStyle.Render("  ⓘ  DRY RUN — no changes will be made to any disk"))
+	} else {
+		sb.WriteString(warningStyle.Render("  ⚠  ALL DATA ON " + m.cfg.DiskDevice + " WILL BE DESTROYED"))
+	}
 	sb.WriteString("\n\n")
 	sb.WriteString(m.form.View())
 	return sb.String()
